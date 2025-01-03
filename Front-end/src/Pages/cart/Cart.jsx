@@ -8,7 +8,6 @@ const Cart = () => {
   const [showPayPal, setShowPayPal] = useState(false);
 
   useEffect(() => {
-
     const customerId = localStorage.getItem("customerId");
     console.log("Customer ID:", customerId);
     const customerEmail = localStorage.getItem("customerEmail");
@@ -80,9 +79,32 @@ const Cart = () => {
     }
   };
 
-  const handleClearCart = () => {
-    setCartItems([]);
-    localStorage.removeItem("customerId");
+  // Cart clear
+  const handleClearCart = async () => {
+    const customerId = localStorage.getItem("customerId");
+
+    if (!customerId) {
+      alert("No customer ID found. Please log in.");
+      return;
+    }
+
+    try {
+      const apiUrl = `http://localhost:3000/api/pendingcart/pendingcartclear/${customerId}`;
+      const response = await fetch(apiUrl, { method: "DELETE" });
+
+      if (response.ok) {
+        setCartItems([]);
+        localStorage.removeItem("cart");
+        alert("Cart cleared successfully.");
+      } else {
+        const errorData = await response.json();
+        console.error("Error clearing cart:", errorData.message);
+        alert("Failed to clear the cart. Please try again.");
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
+      alert("An error occurred while clearing the cart.");
+    }
   };
 
   const handleQuantityChange = (itemId, newQuantity) => {
@@ -127,8 +149,10 @@ const Cart = () => {
             onApprove: async (data, actions) => {
               try {
                 const details = await actions.order.capture();
-                alert(`Transaction completed by ${details.payer.name.given_name}`);
-  
+                alert(
+                  `Transaction completed by ${details.payer.name.given_name}`
+                );
+
                 const orderData = {
                   customerId: localStorage.getItem("customerId"),
                   items: cartItems.map((item) => ({
@@ -140,8 +164,7 @@ const Cart = () => {
                   paymentId: details.id,
                   paymentStatus: "Completed",
                 };
-  
-                // Send order data 
+
                 const response = await fetch(
                   "http://localhost:3000/api/orders/orderdatasend/",
                   {
@@ -152,48 +175,59 @@ const Cart = () => {
                     body: JSON.stringify(orderData),
                   }
                 );
-  
+
                 if (response.ok) {
-                 
                   alert("Order placed successfully!");
-                 
-                  // Get email from local storage
-                 
-                  const customerEmail =localStorage.getItem("customerEmail"); 
+
+                  // Clear the pending cart from the database
+                  const customerId = localStorage.getItem("customerId");
+                  const clearCartResponse = await fetch(
+                    `http://localhost:3000/api/pendingcart/pendingcartclear/${customerId}`,
+                    { method: "DELETE" }
+                  );
+
+                  if (clearCartResponse.ok) {
+                    // Clear local state and local storage
+                    setCartItems([]);
+                    localStorage.removeItem("cart");
+                    alert("Checkout successful, Email has been sent to you!");
+                  } else {
+                    const clearCartError = await clearCartResponse.json();
+                    console.error(
+                      "Error clearing cart:",
+                      clearCartError.message
+                    );
+                    alert(
+                      "Checkout successful, but failed to clear the cart. Please try again."
+                    );
+                  }
+
+                  // Send confirmation email (if necessary)
+                  const customerEmail = localStorage.getItem("customerEmail");
                   if (customerEmail) {
-                    console.log("Customer Email:", customerEmail);
-                    try {
-                      const emailResponse = await fetch("http://localhost:3000/api/email/send-email", {
+                    const emailResponse = await fetch(
+                      "http://localhost:3000/api/email/send-email",
+                      {
                         method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           to: customerEmail,
                           subject: "Order Confirmation",
                           text: `Dear customer, your payment of $${getTotal()} has been successfully received. Thank you for shopping with us!`,
                         }),
-                      });
-                  
-                      if (emailResponse.ok) {
-                        alert("Confirmation email sent successfully!");
-                      } else {
-                        const errorMessage = await emailResponse.text();
-                        console.error("Email sending failed:", errorMessage);
-                        alert("Failed to send confirmation email. Please contact support.");
                       }
-                    } catch (emailError) {
-                      console.error("Error during email sending:", emailError);
-                      alert("Unexpected error occurred while sending confirmation email.");
+                    );
+
+                    if (!emailResponse.ok) {
+                      console.error(
+                        "Email sending failed:",
+                        await emailResponse.text()
+                      );
+                      alert(
+                        "Failed to send confirmation email. Please contact support."
+                      );
                     }
-                  } else {
-                    console.error("Email address not found in localStorage!");
-                    alert("Could not send confirmation email. Please verify your account details.");
                   }
-                  
-                  
-  
-                  handleClearCart();
                 } else {
                   console.error("Error saving order:", await response.json());
                   alert("Failed to save the order. Please contact support.");
@@ -203,6 +237,7 @@ const Cart = () => {
                 alert("An error occurred during payment processing.");
               }
             },
+
             onError: (err) => {
               console.error("PayPal Checkout error:", err);
             },
@@ -212,8 +247,6 @@ const Cart = () => {
       document.body.appendChild(script);
     }, 500);
   };
-  
-  
 
   if (loading) {
     return <p>Loading...</p>;
